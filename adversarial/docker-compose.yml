@@ -1,0 +1,11 @@
+version: '2.3'
+services:
+  fgsm:
+    build: 
+      context: ./
+      dockerfile: fgsm.dockerfile
+    runtime: nvidia 
+    working_dir: /app   
+    volumes:
+      - /home/ivokun/fgsm:/app
+    command: python fgsm_cifar10.py
