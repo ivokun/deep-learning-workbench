@@ -34,7 +34,7 @@ SOURCE_SAMPLES = 10
 LEARNING_RATE = .001
 CW_LEARNING_RATE = .2
 ATTACK_ITERATIONS = 100
-MODEL_PATH = os.path.join('models', 'mnist')
+MODEL_PATH = os.path.join('models', 'cw_mnist')
 TARGETED = True
 
 
