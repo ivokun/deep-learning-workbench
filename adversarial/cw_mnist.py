@@ -24,6 +24,9 @@ from cleverhans.utils import set_log_level
 from cleverhans.utils_tf import model_eval, tf_model_load
 from cleverhans.train import train
 from cleverhans.model_zoo.basic_cnn import ModelBasicCNN
+from cleverhans.plot import image as cleverhans_image
+
+import matplotlib.pyplot as plt
 
 FLAGS = flags.FLAGS
 
@@ -36,6 +39,7 @@ CW_LEARNING_RATE = .2
 ATTACK_ITERATIONS = 100
 MODEL_PATH = os.path.join('models', 'cw_mnist')
 TARGETED = True
+NOISE_OUTPUT = True
 
 
 def mnist_tutorial_cw(train_start=0, train_end=60000, test_start=0,
@@ -45,7 +49,8 @@ def mnist_tutorial_cw(train_start=0, train_end=60000, test_start=0,
                       learning_rate=LEARNING_RATE,
                       attack_iterations=ATTACK_ITERATIONS,
                       model_path=MODEL_PATH,
-                      targeted=TARGETED):
+                      targeted=TARGETED,
+                      noise_output=NOISE_OUTPUT):
   """
   MNIST tutorial for Carlini and Wagner's attack
   :param train_start: index of first training set example
@@ -142,7 +147,7 @@ def mnist_tutorial_cw(train_start=0, train_end=60000, test_start=0,
   if targeted:
     if viz_enabled:
       # Initialize our array for grid visualization
-      grid_shape = (nb_classes, nb_classes, img_rows, img_cols,
+      grid_shape = (nb_classes, 1, img_rows, img_cols,
                     nchannels)
       grid_viz_data = np.zeros(grid_shape, dtype='f')
 
@@ -166,7 +171,7 @@ def mnist_tutorial_cw(train_start=0, train_end=60000, test_start=0,
   else:
     if viz_enabled:
       # Initialize our array for grid visualization
-      grid_shape = (nb_classes, 2, img_rows, img_cols, nchannels)
+      grid_shape = (nb_classes, nb_classes, img_rows, img_cols, nchannels)
       grid_viz_data = np.zeros(grid_shape, dtype='f')
 
       adv_inputs = x_test[idxs]
@@ -204,15 +209,12 @@ def mnist_tutorial_cw(train_start=0, train_end=60000, test_start=0,
       adv_accuracy = 1 - err
 
   if viz_enabled:
-    for j in range(nb_classes):
-      if targeted:
-        for i in range(nb_classes):
-          grid_viz_data[i, j] = adv[i * nb_classes + j]
+    for i in range(nb_classes):
+      if noise_output:
+        image = adv[i * nb_classes] - adv_inputs[i * nb_classes]
       else:
-        grid_viz_data[j, 0] = adv_inputs[j]
-        grid_viz_data[j, 1] = adv[j]
-
-    print(grid_viz_data.shape)
+        image = adv[i * nb_classes]
+      grid_viz_data[i, 0] = image
 
   print('--------------------------------------')
 
@@ -227,10 +229,40 @@ def mnist_tutorial_cw(train_start=0, train_end=60000, test_start=0,
 
   # Close TF session
   sess.close()
+  def save_visual(data, path):
+    """
+    Modified version of cleverhans.plot.pyplot
+    """
+    figure = plt.figure()
+    # figure.canvas.set_window_title('Cleverhans: Grid Visualization')
+
+    # Add the images to the plot
+    num_cols = data.shape[0]
+    num_rows = data.shape[1]
+    num_channels = data.shape[4]
+    for y in range(num_rows):
+      for x in range(num_cols):
+        figure.add_subplot(num_rows, num_cols, (x + 1) + (y * num_cols))
+        plt.axis('off')
+
+        if num_channels == 1:
+          plt.imshow(data[x, y, :, :, 0], cmap='gray')
+        else:
+          plt.imshow(data[x, y, :, :, :])
+
+    # Draw the plot and return
+    plt.savefig(path)
+    return figure
 
   # Finally, block & display a grid of all the adversarial examples
   if viz_enabled:
-    _ = grid_visual(grid_viz_data)
+    # _ = grid_visual(grid_viz_data)
+    # cleverhans_image.save("output", grid_viz_data)
+    if noise_output:
+      image_name = "output/cw_mnist_noise.png"
+    else:
+      image_name = "output/cw_mnist.png"
+    _ = save_visual(grid_viz_data, image_name)
 
   return report
 

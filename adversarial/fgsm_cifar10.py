@@ -1,14 +1,6 @@
 """
-====
-This is modified version of tutorial in https://github.com/tensorflow/cleverhans
-====
-
-This tutorial shows how to generate adversarial examples using FGSM
-and train a model using adversarial training with Keras.
-It is very similar to mnist_tutorial_tf.py, which does the same
-thing but without a dependence on keras.
-The original paper can be found at:
-https://arxiv.org/abs/1412.6572
+This tutorial shows how to generate adversarial examples
+using FGSM attack in white-box setting.
 """
 # pylint: disable=missing-docstring
 from __future__ import absolute_import
@@ -16,69 +8,75 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
+import logging
 import os
-
-import tensorflow as tf
-from tensorflow import keras
 import numpy as np
+import tensorflow as tf
 
 from cleverhans.attacks import FastGradientMethod
-from cleverhans.compat import flags # pylint: disable=no-name-in-module,unused-import
+from cleverhans.compat import flags
 from cleverhans.dataset import CIFAR10
 from cleverhans.loss import CrossEntropy
+from cleverhans.utils import grid_visual, AccuracyReport
+from cleverhans.utils import set_log_level
+from cleverhans.utils_tf import model_eval, tf_model_load
 from cleverhans.train import train
-from cleverhans.utils import AccuracyReport
-from cleverhans.utils_keras import cnn_model
-from cleverhans.utils_keras import KerasModelWrapper
-from cleverhans.utils_tf import model_eval
+# from cleverhans.model_zoo.basic_cnn import ModelBasicCNN
+from cleverhans.plot import image as cleverhans_image
+from cleverhans.model_zoo.all_convolutional import ModelAllConvolutional
 
 import matplotlib.pyplot as plt
 
 FLAGS = flags.FLAGS
 
-NB_EPOCHS = 6
+VIZ_ENABLED = True
 BATCH_SIZE = 128
+NB_EPOCHS = 6
+SOURCE_SAMPLES = 10
 LEARNING_RATE = .001
-TRAIN_DIR = 'train_dir'
-FILENAME = 'cifar10.ckpt'
-LOAD_MODEL = False
+FGSM_LEARNING_RATE = .2
+ATTACK_ITERATIONS = 100
+MODEL_PATH = os.path.join('models', 'fgsm_cifar10')
+TARGETED = True
+NOISE_OUTPUT = False
 
 
-def cifar10_tutorial(train_start=0, train_end=60000, test_start=0,
-                   test_end=10000, nb_epochs=NB_EPOCHS, batch_size=BATCH_SIZE,
-                   learning_rate=LEARNING_RATE, train_dir=TRAIN_DIR,
-                   filename=FILENAME, load_model=LOAD_MODEL,
-                   testing=False, label_smoothing=0.1):
+def cifar10_tutorial_fgsm(train_start=0, train_end=60000, test_start=0,
+                      test_end=10000, viz_enabled=VIZ_ENABLED,
+                      nb_epochs=NB_EPOCHS, batch_size=BATCH_SIZE,
+                      source_samples=SOURCE_SAMPLES,
+                      learning_rate=LEARNING_RATE,
+                      attack_iterations=ATTACK_ITERATIONS,
+                      model_path=MODEL_PATH,
+                      targeted=TARGETED,
+                      noise_output=NOISE_OUTPUT):
   """
-  CIFAR10 CleverHans tutorial
+  CIFAR10 tutorial for Fast Gradient Method's attack
   :param train_start: index of first training set example
   :param train_end: index of last training set example
   :param test_start: index of first test set example
   :param test_end: index of last test set example
+  :param viz_enabled: (boolean) activate plots of adversarial examples
   :param nb_epochs: number of epochs to train model
   :param batch_size: size of training batches
+  :param nb_classes: number of output classes
+  :param source_samples: number of test inputs to attack
   :param learning_rate: learning rate for training
-  :param train_dir: Directory storing the saved model
-  :param filename: Filename to save model under
-  :param load_model: True for load, False for not load
-  :param testing: if true, test error is calculated
-  :param label_smoothing: float, amount of label smoothing for cross entropy
+  :param model_path: path to the model file
+  :param targeted: should we run a targeted attack? or untargeted?
   :return: an AccuracyReport object
   """
-  tf.keras.backend.set_learning_phase(0)
-
   # Object used to keep track of (and return) key accuracies
   report = AccuracyReport()
 
   # Set TF random seed to improve reproducibility
   tf.set_random_seed(1234)
 
-  if keras.backend.image_data_format() != 'channels_last':
-    raise NotImplementedError("this tutorial requires keras to be configured to channels_last format")
-
-  # Create TF session and set as Keras backend session
+  # Create TF session
   sess = tf.Session()
-  keras.backend.set_session(sess)
+  print("Created TensorFlow session.")
+
+  set_log_level(logging.DEBUG)
 
   # Get CIFAR10 test data
   cifar10 = CIFAR10(train_start=train_start, train_end=train_end,
@@ -94,138 +92,173 @@ def cifar10_tutorial(train_start=0, train_end=60000, test_start=0,
   x = tf.placeholder(tf.float32, shape=(None, img_rows, img_cols,
                                         nchannels))
   y = tf.placeholder(tf.float32, shape=(None, nb_classes))
+  nb_filters = 64
 
   # Define TF model graph
-  model = cnn_model(img_rows=img_rows, img_cols=img_cols,
-                    channels=nchannels, nb_filters=64,
-                    nb_classes=nb_classes)
-  preds = model(x)
+  model = ModelAllConvolutional('model1', nb_classes, nb_filters, input_shape=[32,32,3])
+  preds = model.get_logits(x)
+  loss = CrossEntropy(model, smoothing=0.1)
   print("Defined TensorFlow model graph.")
 
-  def evaluate():
-    # Evaluate the accuracy of the CIFAR10 model on legitimate test examples
-    eval_params = {'batch_size': batch_size}
-    acc = model_eval(sess, x, y, preds, x_test, y_test, args=eval_params)
-    report.clean_train_clean_eval = acc
-#        assert X_test.shape[0] == test_end - test_start, X_test.shape
-    print('Test accuracy on legitimate examples: %0.4f' % acc)
+  ###########################################################################
+  # Training the model using TensorFlow
+  ###########################################################################
 
   # Train an CIFAR10 model
   train_params = {
       'nb_epochs': nb_epochs,
       'batch_size': batch_size,
       'learning_rate': learning_rate,
-      'train_dir': train_dir,
-      'filename': filename
+      'filename': os.path.split(model_path)[-1]
   }
 
   rng = np.random.RandomState([2017, 8, 30])
-  if not os.path.exists(train_dir):
-    os.mkdir(train_dir)
-
-  ckpt = tf.train.get_checkpoint_state(train_dir)
-  print(train_dir, ckpt)
-  ckpt_path = False if ckpt is None else ckpt.model_checkpoint_path
-  wrap = KerasModelWrapper(model)
-
-  if load_model and ckpt_path:
-    saver = tf.train.Saver()
-    print(ckpt_path)
-    saver.restore(sess, ckpt_path)
-    print("Model loaded from: {}".format(ckpt_path))
-    evaluate()
+  # check if we've trained before, and if we have, use that pre-trained model
+  if os.path.exists(model_path + ".meta"):
+    tf_model_load(sess, model_path)
   else:
-    print("Model was not loaded, training from scratch.")
-    loss = CrossEntropy(wrap, smoothing=label_smoothing)
-    train(sess, loss, x_train, y_train, evaluate=evaluate,
-          args=train_params, rng=rng)
+    train(sess, loss, x_train, y_train, args=train_params, rng=rng)
+    saver = tf.train.Saver()
+    saver.save(sess, model_path)
 
-  # Calculate training error
-  if testing:
-    eval_params = {'batch_size': batch_size}
-    acc = model_eval(sess, x, y, preds, x_train, y_train, args=eval_params)
-    report.train_clean_train_clean_eval = acc
+  # Evaluate the accuracy of the CIFAR10 model on legitimate test examples
+  eval_params = {'batch_size': batch_size}
+  accuracy = model_eval(sess, x, y, preds, x_test, y_test, args=eval_params)
+  assert x_test.shape[0] == test_end - test_start, x_test.shape
+  print('Test accuracy on legitimate test examples: {0}'.format(accuracy))
+  report.clean_train_clean_eval = accuracy
 
-  # Initialize the Fast Gradient Sign Method (FGSM) attack object and graph
-  fgsm = FastGradientMethod(wrap, sess=sess)
+  ###########################################################################
+  # Craft adversarial examples using Carlini and Wagner's approach
+  ###########################################################################
+  nb_adv_per_sample = str(nb_classes - 1) if targeted else '1'
+  print('Crafting ' + str(source_samples) + ' * ' + nb_adv_per_sample +
+        ' adversarial examples')
+  print("This could take some time ...")
+
+  # Instantiate a FGSM attack object
+  fgsm = FastGradientMethod(model, sess=sess)
+
+  if viz_enabled:
+    assert source_samples == nb_classes
+    idxs = [np.where(np.argmax(y_test, axis=1) == i)[0][0]
+            for i in range(nb_classes)]
+  if targeted:
+    if viz_enabled:
+      # Initialize our array for grid visualization
+      grid_shape = (nb_classes, 1, img_rows, img_cols,
+                    nchannels)
+      grid_viz_data = np.zeros(grid_shape, dtype='f')
+
+      adv_inputs = np.array(
+          [[instance] * nb_classes for instance in x_test[idxs]],
+          dtype=np.float32)
+    else:
+      adv_inputs = np.array(
+          [[instance] * nb_classes for
+           instance in x_test[:source_samples]], dtype=np.float32)
+
+    one_hot = np.zeros((nb_classes, nb_classes))
+    one_hot[np.arange(nb_classes), np.arange(nb_classes)] = 1
+
+    adv_inputs = adv_inputs.reshape(
+        (source_samples * nb_classes, img_rows, img_cols, nchannels))
+    adv_ys = np.array([one_hot] * source_samples,
+                      dtype=np.float32).reshape((source_samples *
+                                                 nb_classes, nb_classes))
+    yname = "y_target"
+  else:
+    if viz_enabled:
+      # Initialize our array for grid visualization
+      grid_shape = (nb_classes, nb_classes, img_rows, img_cols, nchannels)
+      grid_viz_data = np.zeros(grid_shape, dtype='f')
+
+      adv_inputs = x_test[idxs]
+    else:
+      adv_inputs = x_test[:source_samples]
+
+    adv_ys = None
+    yname = "y"
+
+  if targeted:
+    fgsm_params_batch_size = source_samples * nb_classes
+  else:
+    fgsm_params_batch_size = source_samples
   fgsm_params = {'eps': 0.3,
                  'clip_min': 0.,
                  'clip_max': 1.}
-  adv_x = fgsm.generate(x, **fgsm_params)
-  # Consider the attack to be constant
-  adv_x = tf.stop_gradient(adv_x)
-  
-  adv_images = adv_x.eval(session=sess, feed_dict={x: x_test})
-  print("="*10)
-  print("Save Images.....")
-  print("="*10)
-  adv_images *= 255
-  for i in range(10):
-    id_image = np.where(y_test[:]==i)[0]
-    features_id = adv_images[id_image, ::]
-    print(features_id)
-    img_num = np.random.randint(features_id.shape[0])
-    img = np.transpose(features_id[img_num, ::], (1,2,0))
-    img = np.reshape(img, (32,32,3))
-    plt.imshow(img)
-    plt.savefig("output/fgsm_cifar10_"+ str(i) +".png")
 
-  preds_adv = model(adv_x)
-  # Evaluate the accuracy of the CIFAR10 model on adversarial examples
-  eval_par = {'batch_size': batch_size}
-  acc = model_eval(sess, x, y, preds_adv, x_test, y_test, args=eval_par)
-  print('Test accuracy on adversarial examples: %0.4f\n' % acc)
-  report.clean_train_adv_eval = acc
+  adv = fgsm.generate_np(adv_inputs,
+                       **fgsm_params)
 
-  # Calculating train error
-  if testing:
-    eval_par = {'batch_size': batch_size}
-    acc = model_eval(sess, x, y, preds_adv, x_train,
-                     y_train, args=eval_par)
-    report.train_clean_train_adv_eval = acc
+  eval_params = {'batch_size': np.minimum(nb_classes, source_samples)}
+  if targeted:
+    adv_accuracy = model_eval(
+        sess, x, y, preds, adv, adv_ys, args=eval_params)
+  else:
+    if viz_enabled:
+      err = model_eval(sess, x, y, preds, adv, y_test[idxs], args=eval_params)
+      adv_accuracy = 1 - err
+    else:
+      err = model_eval(sess, x, y, preds, adv, y_test[:source_samples],
+                       args=eval_params)
+      adv_accuracy = 1 - err
 
-  print("Repeating the process, using adversarial training")
-  # Redefine TF model graph
-  model_2 = cnn_model(img_rows=img_rows, img_cols=img_cols,
-                      channels=nchannels, nb_filters=64,
-                      nb_classes=nb_classes)
-  wrap_2 = KerasModelWrapper(model_2)
-  preds_2 = model_2(x)
-  fgsm2 = FastGradientMethod(wrap_2, sess=sess)
+  if viz_enabled:
+    for i in range(nb_classes):
+      if noise_output:
+        image = adv[i * nb_classes] - adv_inputs[i * nb_classes]
+      else:
+        image = adv[i * nb_classes]
+      grid_viz_data[i, 0] = image
 
-  def attack(x):
-    return fgsm2.generate(x, **fgsm_params)
+  print('--------------------------------------')
 
-  preds_2_adv = model_2(attack(x))
-  loss_2 = CrossEntropy(wrap_2, smoothing=label_smoothing, attack=attack)
+  # Compute the number of adversarial examples that were successfully found
+  print('Avg. rate of successful adv. examples {0:.4f}'.format(adv_accuracy))
+  report.clean_train_adv_eval = 1. - adv_accuracy
 
-  def evaluate_2():
-    # Accuracy of adversarially trained model on legitimate test inputs
-    eval_params = {'batch_size': batch_size}
-    accuracy = model_eval(sess, x, y, preds_2, x_test, y_test,
-                          args=eval_params)
-    print('Test accuracy on legitimate examples: %0.4f' % accuracy)
-    report.adv_train_clean_eval = accuracy
+  # Compute the average distortion introduced by the algorithm
+  percent_perturbed = np.mean(np.sum((adv - adv_inputs)**2,
+                                     axis=(1, 2, 3))**.5)
+  print('Avg. L_2 norm of perturbations {0:.4f}'.format(percent_perturbed))
 
-    # Accuracy of the adversarially trained model on adversarial examples
-    accuracy = model_eval(sess, x, y, preds_2_adv, x_test,
-                          y_test, args=eval_params)
-    print('Test accuracy on adversarial examples: %0.4f' % accuracy)
-    report.adv_train_adv_eval = accuracy
+  # Close TF session
+  sess.close()
+  def save_visual(data, path):
+    """
+    Modified version of cleverhans.plot.pyplot
+    """
+    figure = plt.figure()
+    # figure.canvas.set_window_title('Cleverhans: Grid Visualization')
 
-  # Perform and evaluate adversarial training
-  train(sess, loss_2, x_train, y_train, evaluate=evaluate_2,
-        args=train_params, rng=rng)
+    # Add the images to the plot
+    num_cols = data.shape[0]
+    num_rows = data.shape[1]
+    num_channels = data.shape[4]
+    for y in range(num_rows):
+      for x in range(num_cols):
+        figure.add_subplot(num_rows, num_cols, (x + 1) + (y * num_cols))
+        plt.axis('off')
 
-  # Calculate training errors
-  if testing:
-    eval_params = {'batch_size': batch_size}
-    accuracy = model_eval(sess, x, y, preds_2, x_train, y_train,
-                          args=eval_params)
-    report.train_adv_train_clean_eval = accuracy
-    accuracy = model_eval(sess, x, y, preds_2_adv, x_train,
-                          y_train, args=eval_params)
-    report.train_adv_train_adv_eval = accuracy
+        if num_channels == 1:
+          plt.imshow(data[x, y, :, :, 0], cmap='gray')
+        else:
+          plt.imshow(data[x, y, :, :, :])
+
+    # Draw the plot and return
+    plt.savefig(path)
+    return figure
+
+  # Finally, block & display a grid of all the adversarial examples
+  if viz_enabled:
+    # _ = grid_visual(grid_viz_data)
+    # cleverhans_image.save("output", grid_viz_data)
+    if noise_output:
+      image_name = "output/fgsm_cifar10_noise.png"
+    else:
+      image_name = "output/fgsm_cifar10.png"
+    _ = save_visual(grid_viz_data, image_name)
 
   return report
 
@@ -234,23 +267,31 @@ def main(argv=None):
   from cleverhans_tutorials import check_installation
   check_installation(__file__)
 
-  cifar10_tutorial(nb_epochs=FLAGS.nb_epochs,
-                 batch_size=FLAGS.batch_size,
-                 learning_rate=FLAGS.learning_rate,
-                 train_dir=FLAGS.train_dir,
-                 filename=FLAGS.filename,
-                 load_model=FLAGS.load_model)
+  cifar10_tutorial_fgsm(viz_enabled=FLAGS.viz_enabled,
+                    nb_epochs=FLAGS.nb_epochs,
+                    batch_size=FLAGS.batch_size,
+                    source_samples=FLAGS.source_samples,
+                    learning_rate=FLAGS.learning_rate,
+                    attack_iterations=FLAGS.attack_iterations,
+                    model_path=FLAGS.model_path,
+                    targeted=FLAGS.targeted)
 
 
 if __name__ == '__main__':
+  flags.DEFINE_boolean('viz_enabled', VIZ_ENABLED,
+                       'Visualize adversarial ex.')
   flags.DEFINE_integer('nb_epochs', NB_EPOCHS,
                        'Number of epochs to train model')
   flags.DEFINE_integer('batch_size', BATCH_SIZE, 'Size of training batches')
+  flags.DEFINE_integer('source_samples', SOURCE_SAMPLES,
+                       'Number of test inputs to attack')
   flags.DEFINE_float('learning_rate', LEARNING_RATE,
                      'Learning rate for training')
-  flags.DEFINE_string('train_dir', TRAIN_DIR,
-                      'Directory where to save model.')
-  flags.DEFINE_string('filename', FILENAME, 'Checkpoint filename.')
-  flags.DEFINE_boolean('load_model', LOAD_MODEL,
-                       'Load saved model or train.')
+  flags.DEFINE_string('model_path', MODEL_PATH,
+                      'Path to save or load the model file')
+  flags.DEFINE_integer('attack_iterations', ATTACK_ITERATIONS,
+                       'Number of iterations to run attack; 1000 is good')
+  flags.DEFINE_boolean('targeted', TARGETED,
+                       'Run the tutorial in targeted mode?')
+
   tf.app.run()

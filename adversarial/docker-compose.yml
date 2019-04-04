@@ -8,4 +8,4 @@ services:
     working_dir: /app   
     volumes:
       - /home/ivokun/fgsm:/app
-    command: python fgsm_cifar10.py
+    command: python black_box.py
