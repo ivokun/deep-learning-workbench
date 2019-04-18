@@ -16,7 +16,7 @@
 @attribute crime numeric
 @attribute duty-free-exports numeric
 @attribute export-administration-act-south-africa numeric
-@attribute Class {democrat,republican}
+@attribute class {democrat,republican}
 
 @data
 0,1,0,1,1,1,0,0,0,1,0,1,1,1,0,1,republican

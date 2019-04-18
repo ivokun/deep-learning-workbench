@@ -77,7 +77,7 @@ def test(net, test_loader):
             (len(test_loader) * test_loader.batch_size),
             100. * correct / (len(test_loader) * test_loader.batch_size)))
 
-dataset = 'credit-a'
+dataset = 'breast-cancer'
 data = samplingloader(dataset, 'arff')
 train_data, test_data, features_num = split_data(data)
 torch.manual_seed(42)

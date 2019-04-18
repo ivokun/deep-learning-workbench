@@ -6,13 +6,13 @@ import pickle
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
-from dataloader import dataloader
+from dataloader import load_gan_data
 import argparse
 
-INPUT_DIM = 100
+INPUT_DIM = 16
 OUTPUT_DIM = 1
 INPUT_SIZE = 32
-CLASS_NUM = 10
+CLASS_NUM = 1
 
 
 class generator(nn.Module):
@@ -103,13 +103,13 @@ class CGAN(object):
         self.model_name = args.gan_type
         self.input_size = args.input_size
         self.z_dim = 62
-        self.class_num = 10
+        self.class_num = CLASS_NUM
         self.sample_num = self.class_num ** 2
 
         # load dataset
-        self.data_loader = dataloader(self.dataset, self.input_size, self.batch_size)
-        data = self.data_loader.__iter__().__next__()[0]
-
+        self.data_loader = load_gan_data(self.dataset)
+        data = self.data_loader.__iter__().__next__()['features']
+        self.z_dim = data.shape[1]
         # networks init
         self.G = generator(input_dim=self.z_dim, output_dim=data.shape[1], input_size=self.input_size, class_num=self.class_num)
         self.D = discriminator(input_dim=data.shape[1], output_dim=1, input_size=self.input_size, class_num=self.class_num)
@@ -164,12 +164,14 @@ class CGAN(object):
         for epoch in range(self.epoch):
             self.G.train()
             epoch_start_time = time.time()
-            for iter, (x_, y_) in enumerate(self.data_loader):
+            for iter, data in enumerate(self.data_loader):
                 if iter == self.data_loader.dataset.__len__() // self.batch_size:
                     break
+                x_ = data['features']
+                y_ = data['target']
 
                 z_ = torch.rand((self.batch_size, self.z_dim))
-                y_vec_ = torch.zeros((self.batch_size, self.class_num)).scatter_(1, y_.type(torch.LongTensor).unsqueeze(1), 1)
+                y_vec_ = torch.zeros((self.batch_size, self.class_num)).scatter_(1, y_.type(torch.LongTensor), 1)
                 y_fill_ = y_vec_.unsqueeze(2).unsqueeze(3).expand(self.batch_size, self.class_num, self.input_size, self.input_size)
                 if self.gpu_mode:
                     x_, z_, y_vec_, y_fill_ = x_.cuda(), z_.cuda(), y_vec_.cuda(), y_fill_.cuda()
@@ -274,11 +276,10 @@ def parse_args():
     parser.add_argument('--gan_type', type=str, default='CGAN',
                         choices=['GAN', 'CGAN', 'infoGAN', 'ACGAN', 'EBGAN', 'BEGAN', 'WGAN', 'WGAN_GP', 'DRAGAN', 'LSGAN'],
                         help='The type of GAN')
-    parser.add_argument('--dataset', type=str, default='mnist', choices=['mnist', 'fashion-mnist', 'cifar10', 'cifar100', 'svhn', 'stl10', 'lsun-bed'],
-                        help='The name of dataset')
+    parser.add_argument('--dataset', type=str, default='vote', help='The name of dataset')
     parser.add_argument('--split', type=str, default='', help='The split flag for svhn and stl10')
     parser.add_argument('--epoch', type=int, default=50, help='The number of epochs to run')
-    parser.add_argument('--batch_size', type=int, default=64, help='The size of batch')
+    parser.add_argument('--batch_size', type=int, default=4, help='The size of batch')
     parser.add_argument('--input_size', type=int, default=28, help='The size of input image')
     parser.add_argument('--save_dir', type=str, default='models',
                         help='Directory name to save the model')

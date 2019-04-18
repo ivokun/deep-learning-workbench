@@ -29,7 +29,7 @@
 @attribute 'TBG measured' numeric
 @attribute TBG numeric
 @attribute 'referral source' numeric
-@attribute Class {negative,sick}
+@attribute class {negative,sick}
 
 @data
 41,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1.3,0,2.5,0,125,0,1.14,0,109,0,0,0,negative

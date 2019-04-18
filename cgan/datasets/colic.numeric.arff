@@ -22,7 +22,7 @@
 @attribute abdominocentesis_appearance numeric
 @attribute abdomcentesis_total_protein numeric
 @attribute outcome numeric
-@attribute surgical_lesion {yes,no}
+@attribute class {yes,no}
 
 @data
 1,0,38.5,66,28,2,2,0,1,4,3,3,1,0,4.962319,2,4,45,8.4,1,2.94812,1,no

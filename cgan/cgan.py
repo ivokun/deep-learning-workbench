@@ -1,30 +1,13 @@
-import utils
-import torch
-import time
-import os
-import pickle
+import utils, torch, time, os, pickle
 import numpy as np
 import torch.nn as nn
 import torch.optim as optim
 from dataloader import dataloader
-import argparse
-
-INPUT_DIM = 100
-OUTPUT_DIM = 1
-INPUT_SIZE = 32
-CLASS_NUM = 10
-
 
 class generator(nn.Module):
-    # Network Architecture is exactly same as in
-    # infoGAN (https://arxiv.org/abs/1606.03657)
+    # Network Architecture is exactly same as in infoGAN (https://arxiv.org/abs/1606.03657)
     # Architecture : FC1024_BR-FC7x7x128_BR-(64)4dc2s_BR-(1)4dc2s_S
-    def __init__(self, 
-                 input_dim=INPUT_DIM, 
-                 output_dim=OUTPUT_DIM, 
-                 input_size=INPUT_SIZE, 
-                 class_num=CLASS_NUM):
-
+    def __init__(self, input_dim=100, output_dim=1, input_size=32, class_num=10):
         super(generator, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -59,7 +42,7 @@ class generator(nn.Module):
 class discriminator(nn.Module):
     # Network Architecture is exactly same as in infoGAN (https://arxiv.org/abs/1606.03657)
     # Architecture : (64)4c2s-(128)4c2s_BL-FC1024_BL-FC1_S
-    def __init__(self, input_dim=INPUT_DIM, output_dim=OUTPUT_DIM, input_size=INPUT_SIZE, class_num=CLASS_NUM):
+    def __init__(self, input_dim=1, output_dim=1, input_size=32, class_num=10):
         super(discriminator, self).__init__()
         self.input_dim = input_dim
         self.output_dim = output_dim
@@ -265,70 +248,3 @@ class CGAN(object):
 
         self.G.load_state_dict(torch.load(os.path.join(save_dir, self.model_name + '_G.pkl')))
         self.D.load_state_dict(torch.load(os.path.join(save_dir, self.model_name + '_D.pkl')))
-
-"""parsing and configuration"""
-def parse_args():
-    desc = "Pytorch implementation of GAN collections"
-    parser = argparse.ArgumentParser(description=desc)
-
-    parser.add_argument('--gan_type', type=str, default='CGAN',
-                        choices=['GAN', 'CGAN', 'infoGAN', 'ACGAN', 'EBGAN', 'BEGAN', 'WGAN', 'WGAN_GP', 'DRAGAN', 'LSGAN'],
-                        help='The type of GAN')
-    parser.add_argument('--dataset', type=str, default='mnist', choices=['mnist', 'fashion-mnist', 'cifar10', 'cifar100', 'svhn', 'stl10', 'lsun-bed'],
-                        help='The name of dataset')
-    parser.add_argument('--split', type=str, default='', help='The split flag for svhn and stl10')
-    parser.add_argument('--epoch', type=int, default=50, help='The number of epochs to run')
-    parser.add_argument('--batch_size', type=int, default=64, help='The size of batch')
-    parser.add_argument('--input_size', type=int, default=28, help='The size of input image')
-    parser.add_argument('--save_dir', type=str, default='models',
-                        help='Directory name to save the model')
-    parser.add_argument('--result_dir', type=str, default='results', help='Directory name to save the generated images')
-    parser.add_argument('--log_dir', type=str, default='logs', help='Directory name to save training logs')
-    parser.add_argument('--lrG', type=float, default=0.0002)
-    parser.add_argument('--lrD', type=float, default=0.0002)
-    parser.add_argument('--beta1', type=float, default=0.5)
-    parser.add_argument('--beta2', type=float, default=0.999)
-    parser.add_argument('--gpu_mode', type=bool, default=False)
-    parser.add_argument('--benchmark_mode', type=bool, default=True)
-
-    return check_args(parser.parse_args())
-
-"""checking arguments"""
-def check_args(args):
-    # --save_dir
-    if not os.path.exists(args.save_dir):
-        os.makedirs(args.save_dir)
-
-    # --result_dir
-    if not os.path.exists(args.result_dir):
-        os.makedirs(args.result_dir)
-
-    # --result_dir
-    if not os.path.exists(args.log_dir):
-        os.makedirs(args.log_dir)
-
-    # --epoch
-    try:
-        assert args.epoch >= 1
-    except:
-        print('number of epochs must be larger than or equal to one')
-
-    # --batch_size
-    try:
-        assert args.batch_size >= 1
-    except:
-        print('batch size must be larger than or equal to one')
-
-    return args
-
-
-if __name__ == '__main__':
-
-     # parse arguments
-    args = parse_args()
-    if args is None:
-        exit()
-
-    gan = CGAN(args)
-    gan.train()
-    print(" [*] Training finished!")

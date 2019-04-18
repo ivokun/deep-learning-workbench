@@ -4,20 +4,6 @@ from torchvision import datasets, transforms
 from scipy.io import arff
 import pandas as pd
 
-# class DatasetCustom(Dataset):
-#     def __init__(self, data_file, format):
-#         if format == 'csv':
-#             filename = dataset + '.csv'
-#             data = pd.read_csv('datasets/' + filename)
-#         else:
-#             filename = dataset + '.numeric.' + format
-#             data= arff.loadarff('datasets/' + filename)
-#             data = pd.DataFrame(data[0])
-#     def __len__(self):
-#         return len(self.dataframe)
-    
-#     def __getitem__(self, idx):
-#         features
 
 def dataloader(dataset, input_size, batch_size, split='train'):
     transform = transform = transforms.Compose([transforms.ToTensor(),transforms.Normalize((0.5,), (0.5,))])
@@ -166,3 +152,27 @@ def split_data(data):
     test_data = DataLoader(test_data, batch_size=4, shuffle=True)
     features_num = all_train_data.shape[1]-1
     return train_data, test_data, features_num
+
+def load_gan_data(dataset):
+    data = samplingloader(dataset, 'arff')
+    data = data.groupby(['class'])
+    a = data.get_group(0)
+    b = data.get_group(1)
+    a_range = a.shape[0]
+    b_range = b.shape[0]
+    range_data = min(a_range, b_range)
+    data_a = a.iloc[:range_data,:]
+    data_b = b.iloc[:range_data,:]
+    all_data = pd.concat([data_a, data_b])
+
+    train_data = []
+
+    for idx in range(all_data.shape[0]):
+        features = all_data.iloc[idx, :-1].values.astype(dtype='float64')
+        target = all_data.iloc[idx, -1:].values.astype(dtype='float64')
+        data = {'features': torch.from_numpy(features),
+                 'target': target}
+        train_data.append(data)
+    
+    train_data = DataLoader(train_data, batch_size=10, shuffle=True)
+    return train_data
