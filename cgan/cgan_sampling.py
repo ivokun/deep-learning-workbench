@@ -35,8 +35,8 @@ class generator(nn.Module):
             nn.Linear(self.input_dim + self.class_num, 1024),
             nn.BatchNorm1d(1024),
             nn.ReLU(),
-            nn.Linear(1024, 128 * (self.input_size // 4) * (self.input_size // 4)),
-            nn.BatchNorm1d(128 * (self.input_size // 4) * (self.input_size // 4)),
+            nn.Linear(1024, self.input_size),
+            nn.BatchNorm1d(self.input_size),
             nn.ReLU(),
         )
         self.deconv = nn.Sequential(
@@ -46,12 +46,23 @@ class generator(nn.Module):
             nn.ConvTranspose2d(64, self.output_dim, 4, 2, 1),
             nn.Tanh(),
         )
+        self.net = nn.Sequential(
+            nn.Linear(self.input_size, 1024),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(1024,30),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(30, 1),
+            nn.Sigmoid()
+            )
         utils.initialize_weights(self)
 
     def forward(self, input, label):
+
         x = torch.cat([input, label], 1)
         x = self.fc(x)
-        x = x.view(-1, 128, (self.input_size // 4), (self.input_size // 4))
+        x = x.view(-1, self.input_size)
         x = self.deconv(x)
 
         return x
@@ -74,20 +85,30 @@ class discriminator(nn.Module):
             nn.LeakyReLU(0.2),
         )
         self.fc = nn.Sequential(
-            nn.Linear(128 * (self.input_size // 4) * (self.input_size // 4), 1024),
+            nn.Linear(128 * self.input_size // 4, 1024),
             nn.BatchNorm1d(1024),
             nn.LeakyReLU(0.2),
             nn.Linear(1024, self.output_dim),
             nn.Sigmoid(),
         )
+        self.net = nn.Sequential(
+            nn.Linear(self.input_size, self.input_size),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(self.input_size,30),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(30, 1),
+            nn.Sigmoid()
+            )
         utils.initialize_weights(self)
 
     def forward(self, input, label):
-        x = torch.cat([input, label], 1)
-        x = self.conv(x)
-        x = x.view(-1, 128 * (self.input_size // 4) * (self.input_size // 4))
-        x = self.fc(x)
-
+        x = torch.cat([input.float(), label], 1)
+        # x = self.conv(x)
+        # x = x.view(-1, 128 * (self.input_size // 4) * (self.input_size // 4))
+        # x = self.fc(x)
+        x = self.net(x)
         return x
 
 class CGAN(object):
@@ -105,11 +126,12 @@ class CGAN(object):
         self.z_dim = 62
         self.class_num = CLASS_NUM
         self.sample_num = self.class_num ** 2
-
         # load dataset
-        self.data_loader = load_gan_data(self.dataset)
+        self.data_loader, features_num, gan_size = load_gan_data(self.dataset, self.batch_size)
         data = self.data_loader.__iter__().__next__()['features']
-        self.z_dim = data.shape[1]
+        self.z_dim = features_num
+        self.input_size = features_num
+        print(gan_size)
         # networks init
         self.G = generator(input_dim=self.z_dim, output_dim=data.shape[1], input_size=self.input_size, class_num=self.class_num)
         self.D = discriminator(input_dim=data.shape[1], output_dim=1, input_size=self.input_size, class_num=self.class_num)
@@ -169,16 +191,17 @@ class CGAN(object):
                     break
                 x_ = data['features']
                 y_ = data['target']
-
+                print(y_.shape)
                 z_ = torch.rand((self.batch_size, self.z_dim))
                 y_vec_ = torch.zeros((self.batch_size, self.class_num)).scatter_(1, y_.type(torch.LongTensor), 1)
-                y_fill_ = y_vec_.unsqueeze(2).unsqueeze(3).expand(self.batch_size, self.class_num, self.input_size, self.input_size)
+                y_fill_ = y_vec_.unsqueeze(2).expand(self.batch_size, self.class_num, self.input_size)
                 if self.gpu_mode:
                     x_, z_, y_vec_, y_fill_ = x_.cuda(), z_.cuda(), y_vec_.cuda(), y_fill_.cuda()
 
                 # update D network
                 self.D_optimizer.zero_grad()
-
+                print(x_.shape)
+                print(y_fill_.shape)
                 D_real = self.D(x_, y_fill_)
                 D_real_loss = self.BCE_loss(D_real, self.y_real_)
 

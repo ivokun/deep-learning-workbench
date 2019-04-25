@@ -150,7 +150,10 @@ class CGAN(object):
             for iter, (x_, y_) in enumerate(self.data_loader):
                 if iter == self.data_loader.dataset.__len__() // self.batch_size:
                     break
-
+                print(x_)
+                print(y_)
+                print(self.batch_size)
+                print(self.class_num)
                 z_ = torch.rand((self.batch_size, self.z_dim))
                 y_vec_ = torch.zeros((self.batch_size, self.class_num)).scatter_(1, y_.type(torch.LongTensor).unsqueeze(1), 1)
                 y_fill_ = y_vec_.unsqueeze(2).unsqueeze(3).expand(self.batch_size, self.class_num, self.input_size, self.input_size)

@@ -153,7 +153,7 @@ def split_data(data):
     features_num = all_train_data.shape[1]-1
     return train_data, test_data, features_num
 
-def load_gan_data(dataset):
+def load_gan_data(dataset, batch_size):
     data = samplingloader(dataset, 'arff')
     data = data.groupby(['class'])
     a = data.get_group(0)
@@ -173,6 +173,7 @@ def load_gan_data(dataset):
         data = {'features': torch.from_numpy(features),
                  'target': target}
         train_data.append(data)
-    
-    train_data = DataLoader(train_data, batch_size=10, shuffle=True)
-    return train_data
+    features_num = all_data.shape[1]-1
+    count_data = all_data.shape[0]
+    train_data = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+    return train_data, features_num, count_data

@@ -102,3 +102,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+#pytorch-sentiment-analysis datasets
+pytorch-sentiment-analysis/.data/
