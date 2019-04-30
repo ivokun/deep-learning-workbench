@@ -9,6 +9,8 @@ import torch.optim as optim
 import time
 import random
 
+from nltk.stem import PorterStemmer
+
 class LSTM(nn.Module):
   def __init__(self, vocab_size, embedding_dim, hidden_dim, output_dim, n_layers, bidirectional, dropout, pad_idx):
     super().__init__()
@@ -29,6 +31,9 @@ class LSTM(nn.Module):
     hidden = self.dropout(torch.cat((hidden[-2,:,:], hidden[-1,:,:]), dim = 1))
     return self.fc(hidden.squeeze(0))
 
+# def stemmer(datas):
+#   stem
+
 SEED = 1234
 MAX_VOCAB_SIZE = 25_000
 BATCH_SIZE = 64
@@ -36,7 +41,10 @@ BATCH_SIZE = 64
 torch.manual_seed(SEED)
 torch.backends.cudnn.deterministic = True
 
-TEXT = data.Field(tokenize = 'spacy', include_lengths = True)
+ps = PorterStemmer()
+stem = lambda datas: [ps.stem(x) for x in datas]
+
+TEXT = data.Field(tokenize = 'spacy', preprocessing=stem, include_lengths = True)
 LABEL = data.LabelField(dtype = torch.float)
 
 train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
@@ -46,7 +54,7 @@ print(f'Number of training examples: {len(train_data)}')
 print(f'Number of validation examples:{len(valid_data)}')
 print(f'Number of testing examples: {len(test_data)}')
 
-# print(vars(train_data.examples[0]))
+print(vars(train_data.examples[0]))
 
 TEXT.build_vocab(train_data, 
                  max_size = MAX_VOCAB_SIZE)

@@ -105,3 +105,4 @@ venv.bak/
 
 #pytorch-sentiment-analysis datasets
 pytorch-sentiment-analysis/.data/
+pytorch-sentiment-analysis/datasets/
